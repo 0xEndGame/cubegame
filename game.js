@@ -15,7 +15,7 @@ const CONFIG = {
     ZOOM_SPEED: 3,
 
     // Solana Configuration
-    SOLANA_NETWORK: 'devnet', // 'devnet', 'testnet', or 'mainnet-beta'
+    SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
     PROGRAM_ID: 'CubeGameXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // Replace after deployment
     TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS', // <-- PUT YOUR WALLET ADDRESS HERE
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
