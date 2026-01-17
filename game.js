@@ -16,16 +16,14 @@ const CONFIG = {
 
     // Solana Configuration
     SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
-    PROGRAM_ID: 'CubeGameXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // Replace after deployment
-    TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS', // <-- PUT YOUR WALLET ADDRESS HERE
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
 };
 
-// Solana RPC endpoints (using reliable public RPCs)
+// Solana RPC endpoints (API key loaded from config.js)
 const SOLANA_RPC = {
     'devnet': 'https://api.devnet.solana.com',
     'testnet': 'https://api.testnet.solana.com',
-    'mainnet-beta': 'https://rpc.ankr.com/solana', // Free public RPC
+    'mainnet-beta': `https://mainnet.helius-rpc.com/?api-key=${PRIVATE_CONFIG.HELIUS_API_KEY}`,
 };
 
 // Calculate total shell layers (like an onion)
@@ -412,7 +410,7 @@ class CubeClickerGame {
             const lamports = CONFIG.PRICE_PER_CUBE_SOL * solanaWeb3.LAMPORTS_PER_SOL;
 
             // Treasury address - receives the SOL payment
-            const treasury = new solanaWeb3.PublicKey(CONFIG.TREASURY_WALLET);
+            const treasury = new solanaWeb3.PublicKey(PRIVATE_CONFIG.TREASURY_WALLET);
 
             const transaction = new solanaWeb3.Transaction().add(
                 solanaWeb3.SystemProgram.transfer({
