@@ -3,26 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cube Clicker Game</title>
+    <title>Cube Clicker - Solana</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="ui-overlay">
         <div id="info-panel">
             <h1>Cube Clicker</h1>
+            <p class="subtitle">Powered by Solana</p>
             <div id="stats">
-                <p>Remaining Cubes: <span id="cube-count">0</span></p>
-                <p>Cubes Clicked: <span id="clicked-count">0</span></p>
-                <p>Layer: <span id="layer-count">1</span> / <span id="total-layers">2</span></p>
+                <p>Remaining: <span id="cube-count">0</span></p>
+                <p>Total Removed: <span id="clicked-count">0</span></p>
+                <p>Your Clicks: <span id="my-clicked-count">0</span></p>
+                <p>Layer: <span id="layer-count">1</span> / <span id="total-layers">20</span></p>
                 <p>Wallet: <span id="wallet-status">Not connected</span></p>
-                <p>Active Clickers: <span id="active-clickers">0</span></p>
+                <p>Status: <span id="payment-status">Initializing...</span></p>
             </div>
-            <button id="connect-wallet-btn">Connect Wallet</button>
+            <button id="connect-wallet-btn">Connect Phantom</button>
+            <p class="price-info">Cost: 0.001 SOL per cube</p>
         </div>
         <div id="winner-modal" class="hidden">
             <div class="modal-content">
-                <h2>🎉 Congratulations! 🎉</h2>
-                <p>You clicked the last cube!</p>
+                <h2>🎉 Game Complete! 🎉</h2>
+                <p>All cubes have been removed!</p>
                 <p class="final-stats">Total cubes clicked: <span id="final-count">0</span></p>
                 <button id="play-again-btn">Play Again</button>
             </div>
@@ -30,7 +33,13 @@
     </div>
     <div id="game-container"></div>
 
+    <!-- Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+    <!-- Solana Web3.js -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+
+    <!-- Game -->
     <script src="game.js"></script>
 </body>
 </html>

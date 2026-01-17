@@ -4,21 +4,31 @@ const CONFIG = {
     GRID_Y: 40,
     GRID_Z: 50,
     CUBE_SIZE: 1,
-    CUBE_SPACING: 1.02,         // Very slight gap for visual separation
+    CUBE_SPACING: 1.02,
     CUBE_COLOR: 0x4a90e2,
-    CUBE_LOCKED_COLOR: 0x2a3f5f, // Darker color for locked layers
+    CUBE_LOCKED_COLOR: 0x2a3f5f,
     CUBE_HOVER_COLOR: 0xff6b6b,
+    HOLE_COLOR: 0xff9f43,
     REMOVE_ANIMATION_DURATION: 300,
     MIN_ZOOM: 80,
     MAX_ZOOM: 400,
     ZOOM_SPEED: 3,
-    PAYMENT_RECIPIENT: '0x14740784D6b26181047bAF069cfd53B29E48E7C4', // Replace with your receiving address
-    TRANSACTION_VALUE_ETH: 0.0001,
-    WS_URL: 'wss://cubegame-production.up.railway.app', // Defaults to same origin; override for dev if needed
+
+    // Solana Configuration
+    SOLANA_NETWORK: 'devnet', // 'devnet', 'testnet', or 'mainnet-beta'
+    PROGRAM_ID: 'CubeGameXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', // Replace after deployment
+    TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS', // <-- PUT YOUR WALLET ADDRESS HERE
+    PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
+};
+
+// Solana RPC endpoints
+const SOLANA_RPC = {
+    'devnet': 'https://api.devnet.solana.com',
+    'testnet': 'https://api.testnet.solana.com',
+    'mainnet-beta': 'https://api.mainnet-beta.solana.com',
 };
 
 // Calculate total shell layers (like an onion)
-// For dimension N, max depth is floor((N-1)/2), so layer count is that + 1
 const MAX_LAYERS = Math.min(
     Math.floor((CONFIG.GRID_X - 1) / 2),
     Math.floor((CONFIG.GRID_Y - 1) / 2),
@@ -30,47 +40,102 @@ class CubeClickerGame {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
-        this.cubes = []; // meshes for current layer only
+        this.cubes = [];
         this.cubeData = [];
         this.cubeLookup = new Map();
+        this.holeMarkers = new Map();
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.hoveredCube = null;
         this.clickedCount = 0;
+        this.myClickedCount = 0; // Personal counter
         this.animatingCubes = new Set();
         this.cameraDistance = 160;
-        this.currentLayer = 0; // Start from outer shell (layer 0)
+        this.currentLayer = 0;
 
-        // Wallet/payment state
-        this.walletAddress = null;
+        // Solana state
+        this.connection = null;
+        this.walletPublicKey = null;
         this.isProcessingPayment = false;
+        this.removedCubesCache = new Set(); // Cache of removed cube IDs
+
+        // UI elements
         this.walletStatusEl = document.getElementById('wallet-status');
         this.paymentStatusEl = document.getElementById('payment-status');
-        this.activeClickersEl = document.getElementById('active-clickers');
         this.connectBtn = document.getElementById('connect-wallet-btn');
-        this.socket = null;
-        this.pendingRemovalIds = new Set();
+        this.myClickedEl = document.getElementById('my-clicked-count');
 
         // Camera rotation controls
         this.isDragging = false;
         this.dragMoved = false;
         this.previousMousePosition = { x: 0, y: 0 };
-        this.cameraTheta = 0; // Horizontal angle
-        this.cameraPhi = 1.0; // Vertical angle (radians from top)
+        this.cameraTheta = 0;
+        this.cameraPhi = 1.0;
         this.autoRotate = true;
 
         this.init();
         this.createCubeData();
         this.loadCurrentLayerMeshes();
         this.setupEventListeners();
-        this.setupNetwork();
+        this.initSolana();
         this.updateWalletDisplay();
         this.updateLayerColors();
         this.animate();
         this.updateStats();
     }
 
-    // Calculate which shell layer a cube belongs to (0 = outermost)
+    // Initialize Solana connection
+    async initSolana() {
+        try {
+            const rpcUrl = SOLANA_RPC[CONFIG.SOLANA_NETWORK];
+            this.connection = new solanaWeb3.Connection(rpcUrl, 'confirmed');
+            this.setPaymentStatus(`Connected to Solana ${CONFIG.SOLANA_NETWORK}`);
+
+            // Try to reconnect if wallet was previously connected
+            if (window.solana?.isPhantom && window.solana.isConnected) {
+                await this.connectWallet();
+            }
+
+            // Load removed cubes from chain (in batches for performance)
+            await this.syncRemovedCubesFromChain();
+        } catch (error) {
+            console.error('Solana init error:', error);
+            this.setPaymentStatus('Failed to connect to Solana');
+        }
+    }
+
+    // Sync removed cubes from blockchain
+    async syncRemovedCubesFromChain() {
+        // For a full implementation, you'd query the program's accounts
+        // For now, we'll use localStorage as a fallback cache
+        try {
+            const cached = localStorage.getItem('removedCubes');
+            if (cached) {
+                const removed = JSON.parse(cached);
+                removed.forEach(id => {
+                    this.removedCubesCache.add(id);
+                    const data = this.cubeLookup.get(id);
+                    if (data) data.visible = false;
+                });
+                this.clickedCount = removed.length;
+                this.syncLayerFromState();
+                this.loadCurrentLayerMeshes();
+                this.updateStats();
+            }
+        } catch (e) {
+            console.warn('Could not load cached state:', e);
+        }
+    }
+
+    // Save removed cubes to localStorage (backup)
+    saveRemovedCubes() {
+        try {
+            localStorage.setItem('removedCubes', JSON.stringify([...this.removedCubesCache]));
+        } catch (e) {
+            console.warn('Could not save state:', e);
+        }
+    }
+
     getShellLayer(x, y, z) {
         const distX = Math.min(x, CONFIG.GRID_X - 1 - x);
         const distY = Math.min(y, CONFIG.GRID_Y - 1 - y);
@@ -79,23 +144,19 @@ class CubeClickerGame {
     }
 
     init() {
-        // Scene setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1a1a2e);
         this.scene.fog = new THREE.Fog(0x1a1a2e, 100, 300);
 
-        // Camera setup
         const aspect = window.innerWidth / window.innerHeight;
         this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 500);
 
-        // Renderer setup
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.shadowMap.enabled = true;
         document.getElementById('game-container').appendChild(this.renderer.domElement);
 
-        // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
 
@@ -139,96 +200,89 @@ class CubeClickerGame {
         });
         this.cubes = [];
         this.hoveredCube = null;
+
+        this.holeMarkers.forEach(marker => {
+            this.scene.remove(marker);
+            marker.geometry.dispose();
+            marker.material.dispose();
+        });
+        this.holeMarkers.clear();
     }
 
     loadCurrentLayerMeshes() {
         this.clearCurrentLayerMeshes();
         const sharedGeometry = new THREE.BoxGeometry(CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE);
 
-        // Only create meshes for the current shell layer to reduce load
         this.cubeData.forEach(data => {
-            if (!data.visible) return;
             if (data.shellLayer !== this.currentLayer) return;
 
-            const material = new THREE.MeshStandardMaterial({
-                color: CONFIG.CUBE_COLOR,
-                metalness: 0.3,
-                roughness: 0.4,
-                opacity: 1,
-                transparent: false,
-            });
+            if (data.visible) {
+                const material = new THREE.MeshStandardMaterial({
+                    color: CONFIG.CUBE_COLOR,
+                    metalness: 0.3,
+                    roughness: 0.4,
+                    opacity: 1,
+                    transparent: false,
+                });
 
-            const cube = new THREE.Mesh(sharedGeometry.clone(), material);
-            cube.position.set(
-                data.gridX * CONFIG.CUBE_SPACING,
-                data.gridY * CONFIG.CUBE_SPACING,
-                data.gridZ * CONFIG.CUBE_SPACING
-            );
-            cube.castShadow = true;
-            cube.receiveShadow = true;
+                const cube = new THREE.Mesh(sharedGeometry.clone(), material);
+                cube.position.set(
+                    data.gridX * CONFIG.CUBE_SPACING,
+                    data.gridY * CONFIG.CUBE_SPACING,
+                    data.gridZ * CONFIG.CUBE_SPACING
+                );
+                cube.castShadow = true;
+                cube.receiveShadow = true;
 
-            cube.userData = {
-                originalColor: CONFIG.CUBE_COLOR,
-                id: data.id,
-                shellLayer: data.shellLayer,
-                originalPosY: data.originalPosY,
-                dataRef: data,
-            };
+                cube.userData = {
+                    originalColor: CONFIG.CUBE_COLOR,
+                    id: data.id,
+                    shellLayer: data.shellLayer,
+                    originalPosY: data.originalPosY,
+                    dataRef: data,
+                };
 
-            this.scene.add(cube);
-            this.cubes.push(cube);
+                this.scene.add(cube);
+                this.cubes.push(cube);
+            } else {
+                this.addHoleMarker(data);
+            }
         });
 
         this.updateLayerColors();
     }
 
     setupEventListeners() {
-        // Mouse move for hover effect and camera rotation
         window.addEventListener('mousemove', (event) => this.onMouseMove(event));
-
-        // Mouse down for drag start
         window.addEventListener('mousedown', (event) => this.onMouseDown(event));
-
-        // Mouse up for drag end and click
         window.addEventListener('mouseup', (event) => this.onMouseUp(event));
-
-        // Scroll to zoom
         window.addEventListener('wheel', (event) => this.onMouseWheel(event), { passive: false });
-
-        // Window resize
         window.addEventListener('resize', () => this.onWindowResize());
 
-        // Reset button (optional)
-        const resetBtn = document.getElementById('reset-btn');
-        if (resetBtn) {
-            resetBtn.addEventListener('click', () => this.resetGame());
-        }
+        document.getElementById('play-again-btn')?.addEventListener('click', () => this.resetGame());
 
-        // Play again button
-        document.getElementById('play-again-btn').addEventListener('click', () => this.resetGame());
-
-        // Wallet connect button
         if (this.connectBtn) {
             this.connectBtn.addEventListener('click', () => this.handleConnectButton());
         }
 
-        // Respond to wallet account changes
-        if (window.ethereum && typeof window.ethereum.on === 'function') {
-            window.ethereum.on('accountsChanged', (accounts) => {
-                this.walletAddress = accounts && accounts.length ? accounts[0] : null;
-                if (this.walletAddress) {
-                    this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
-                } else {
-                    this.setWalletStatus('Not connected');
-                }
-                this.updateActiveClickers();
+        // Listen for Phantom wallet changes
+        if (window.solana) {
+            window.solana.on('connect', () => {
+                this.walletPublicKey = window.solana.publicKey;
+                this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletPublicKey.toString())}`);
+                this.updateConnectButton();
+            });
+
+            window.solana.on('disconnect', () => {
+                this.walletPublicKey = null;
+                this.setWalletStatus('Not connected');
                 this.updateConnectButton();
             });
         }
     }
 
     onMouseDown(event) {
-        if (event.button === 0) { // Left mouse button
+        if (event.button === 0) {
             this.isDragging = true;
             this.dragMoved = false;
             this.previousMousePosition = { x: event.clientX, y: event.clientY };
@@ -239,8 +293,6 @@ class CubeClickerGame {
     onMouseUp(event) {
         if (event.button === 0) {
             this.isDragging = false;
-
-            // Only trigger click if we didn't drag
             if (!this.dragMoved) {
                 this.handleCubeClick(event).catch((error) => {
                     console.error('Error handling cube click', error);
@@ -252,28 +304,16 @@ class CubeClickerGame {
 
     onMouseWheel(event) {
         event.preventDefault();
-
-        // Adjust camera distance based on scroll direction
         this.cameraDistance += event.deltaY * 0.01 * CONFIG.ZOOM_SPEED;
-
-        // Clamp to min/max zoom
         this.cameraDistance = Math.max(CONFIG.MIN_ZOOM, Math.min(CONFIG.MAX_ZOOM, this.cameraDistance));
     }
 
-    isOnCurrentLayer(cube) {
-        return cube.userData.shellLayer === this.currentLayer;
-    }
-
     getClickableCubes() {
-        return this.cubes.filter(cube =>
-            cube.visible &&
-            !this.animatingCubes.has(cube)
-        );
+        return this.cubes.filter(cube => cube.visible && !this.animatingCubes.has(cube));
     }
 
     updateWalletDisplay() {
         this.setWalletStatus('Not connected');
-        this.updateActiveClickers(0);
         this.updateConnectButton();
     }
 
@@ -283,246 +323,149 @@ class CubeClickerGame {
         }
     }
 
-    updateConnectButton() {
-        if (!this.connectBtn) return;
-        this.connectBtn.textContent = this.walletAddress ? 'Disconnect Wallet' : 'Connect Wallet';
-    }
-
-    updateActiveClickers(count) {
-        if (!this.activeClickersEl) return;
-        if (typeof count === 'number') {
-            this.activeClickersEl.textContent = String(count);
-        }
-    }
-
-    getWebSocketUrl() {
-        if (CONFIG.WS_URL) return CONFIG.WS_URL;
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}`;
-    }
-
-    setupNetwork() {
-        try {
-            const url = this.getWebSocketUrl();
-            this.socket = new WebSocket(url);
-
-            this.socket.addEventListener('open', () => {
-                this.setPaymentStatus('Connected to server');
-            });
-
-            this.socket.addEventListener('message', (event) => this.handleSocketMessage(event));
-
-            this.socket.addEventListener('close', () => {
-                this.setPaymentStatus('Disconnected from server');
-                if (this.activeClickersEl) this.activeClickersEl.textContent = '0';
-                this.pendingRemovalIds.clear();
-            });
-
-            this.socket.addEventListener('error', () => {
-                this.setPaymentStatus('Server connection error');
-            });
-        } catch (err) {
-            console.error('WebSocket setup failed', err);
-            this.setPaymentStatus('Server unavailable');
-        }
-    }
-
-    handleSocketMessage(event) {
-        try {
-            const data = JSON.parse(event.data);
-            switch (data.type) {
-                case 'init':
-                    this.applyServerState(data);
-                    break;
-                case 'cube_removed':
-                    this.handleCubeRemovedFromServer(data);
-                    break;
-                case 'active':
-                    this.updateActiveClickers(data.count || 0);
-                    break;
-                case 'error':
-                    console.error('Server error:', data.message);
-                    this.setPaymentStatus(data.message || 'Server error');
-                    break;
-                default:
-                    console.warn('Unknown server message', data);
-            }
-        } catch (err) {
-            console.error('Failed to parse server message', err);
-        }
-    }
-
-    applyServerState(payload) {
-        if (payload.cubes) {
-            Object.entries(payload.cubes).forEach(([cubeId, visible]) => {
-                const data = this.cubeLookup.get(cubeId);
-                if (data) {
-                    data.visible = !!visible;
-                }
-            });
-        }
-        if (typeof payload.clickedCount === 'number') {
-            this.clickedCount = payload.clickedCount;
-        }
-        this.hideWinnerModal();
-        this.syncLayerFromState();
-        this.loadCurrentLayerMeshes();
-        this.updateStats();
-        this.checkWinner();
-    }
-
-    handleCubeRemovedFromServer(data) {
-        const cubeId = data.id;
-        const cube = this.cubes.find(c => c.userData.id === cubeId);
-        const clickedCount = typeof data.clickedCount === 'number' ? data.clickedCount : this.clickedCount;
-        this.clickedCount = clickedCount;
-        this.pendingRemovalIds.delete(cubeId);
-
-        // If the cube is not on the current layer (e.g., already cleared locally), just mark invisible
-        if (!cube) {
-            const dataRef = this.cubeLookup.get(cubeId);
-            if (dataRef) dataRef.visible = false;
-            this.checkLayerComplete();
-            this.updateStats();
-            return;
-        }
-
-        this.animateCubeRemoval(cube);
-    }
-
-    syncLayerFromState() {
-        const visibleLayers = this.cubeData
-            .filter(d => d.visible)
-            .map(d => d.shellLayer);
-        if (visibleLayers.length === 0) {
-            this.currentLayer = 0;
-            return;
-        }
-        this.currentLayer = Math.min(...visibleLayers);
-    }
-
     setPaymentStatus(text) {
         if (this.paymentStatusEl) {
             this.paymentStatusEl.textContent = text;
         }
     }
 
-    shortenAddress(address) {
-        if (!address) return '';
-        return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    updateConnectButton() {
+        if (!this.connectBtn) return;
+        this.connectBtn.textContent = this.walletPublicKey ? 'Disconnect Wallet' : 'Connect Phantom';
     }
 
-    ethToWeiHex(amountEth) {
-        const wei = BigInt(Math.round(amountEth * 1e18));
-        return `0x${wei.toString(16)}`;
+    shortenAddress(address) {
+        if (!address) return '';
+        return `${address.slice(0, 4)}...${address.slice(-4)}`;
     }
 
     async connectWallet() {
-        if (!window.ethereum) {
-            this.setWalletStatus('No wallet detected');
-            alert('An Ethereum-compatible wallet is required to play.');
+        if (!window.solana?.isPhantom) {
+            this.setWalletStatus('Phantom not found');
+            alert('Please install Phantom wallet to play!\nhttps://phantom.app');
             return null;
         }
 
         try {
-            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            if (accounts && accounts.length > 0) {
-                this.walletAddress = accounts[0];
-                this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
-                this.updateActiveClickers();
-                this.updateConnectButton();
-                return this.walletAddress;
-            }
-
-            this.setWalletStatus('No accounts available');
-            this.updateActiveClickers();
+            const response = await window.solana.connect();
+            this.walletPublicKey = response.publicKey;
+            this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletPublicKey.toString())}`);
             this.updateConnectButton();
-            return null;
+            return this.walletPublicKey;
         } catch (error) {
             this.setWalletStatus('Connection rejected');
-            this.updateActiveClickers();
-            this.updateConnectButton();
             console.error('Wallet connection rejected', error);
             return null;
         }
     }
 
-    disconnectWallet() {
-        this.walletAddress = null;
+    async disconnectWallet() {
+        if (window.solana) {
+            await window.solana.disconnect();
+        }
+        this.walletPublicKey = null;
         this.setWalletStatus('Not connected');
         this.setPaymentStatus('Disconnected');
         this.updateConnectButton();
     }
 
     async handleConnectButton() {
-        if (this.walletAddress) {
-            this.disconnectWallet();
+        if (this.walletPublicKey) {
+            await this.disconnectWallet();
         } else {
             await this.connectWallet();
         }
     }
 
-    async executeCubePayment() {
+    // Execute Solana payment and remove cube
+    async removeCubeWithPayment(cube) {
         if (this.isProcessingPayment) {
+            this.setPaymentStatus('Transaction in progress...');
             return false;
         }
 
-        if (!window.ethereum) {
-            this.setPaymentStatus('No wallet detected');
-            alert('You need a wallet (e.g. MetaMask) to clear cubes.');
+        if (!window.solana?.isPhantom) {
+            this.setPaymentStatus('Phantom wallet required');
+            alert('Please install Phantom wallet to play!\nhttps://phantom.app');
             return false;
         }
 
-        const account = await this.connectWallet();
-        if (!account) {
-            return false;
+        // Connect wallet if needed
+        if (!this.walletPublicKey) {
+            const connected = await this.connectWallet();
+            if (!connected) return false;
         }
 
-        const txParams = {
-            from: account,
-            to: CONFIG.PAYMENT_RECIPIENT,
-            value: this.ethToWeiHex(CONFIG.TRANSACTION_VALUE_ETH),
-        };
+        const cubeId = cube.userData.id;
+
+        // Check if already removed
+        if (this.removedCubesCache.has(cubeId)) {
+            this.setPaymentStatus('Cube already removed');
+            return false;
+        }
 
         this.isProcessingPayment = true;
-        this.setPaymentStatus('Awaiting wallet confirmation...');
+        this.setPaymentStatus('Creating transaction...');
 
         try {
-            const txHash = await window.ethereum.request({
-                method: 'eth_sendTransaction',
-                params: [txParams],
-            });
+            // Create a simple SOL transfer (in production, call the program)
+            const lamports = CONFIG.PRICE_PER_CUBE_SOL * solanaWeb3.LAMPORTS_PER_SOL;
 
-            this.setPaymentStatus(`Sent: ${txHash.slice(0, 10)}...`);
+            // Treasury address - receives the SOL payment
+            const treasury = new solanaWeb3.PublicKey(CONFIG.TREASURY_WALLET);
+
+            const transaction = new solanaWeb3.Transaction().add(
+                solanaWeb3.SystemProgram.transfer({
+                    fromPubkey: this.walletPublicKey,
+                    toPubkey: treasury,
+                    lamports: lamports,
+                })
+            );
+
+            // Get recent blockhash
+            const { blockhash } = await this.connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = this.walletPublicKey;
+
+            this.setPaymentStatus('Please approve in Phantom...');
+
+            // Sign and send
+            const signed = await window.solana.signTransaction(transaction);
+            const signature = await this.connection.sendRawTransaction(signed.serialize());
+
+            this.setPaymentStatus('Confirming transaction...');
+
+            // Wait for confirmation
+            const confirmation = await this.connection.confirmTransaction(signature, 'confirmed');
+
+            if (confirmation.value.err) {
+                throw new Error('Transaction failed');
+            }
+
+            this.setPaymentStatus(`Confirmed! ${signature.slice(0, 8)}...`);
+
+            // Mark cube as removed
+            this.removedCubesCache.add(cubeId);
+            this.saveRemovedCubes();
+            this.clickedCount++;
+            this.myClickedCount++;
+
+            // Animate removal
+            this.animateCubeRemoval(cube);
+
             return true;
+
         } catch (error) {
-            this.setPaymentStatus('Payment cancelled');
-            console.error('Payment failed', error);
+            console.error('Payment failed:', error);
+            if (error.message?.includes('User rejected')) {
+                this.setPaymentStatus('Transaction cancelled');
+            } else {
+                this.setPaymentStatus('Transaction failed');
+            }
             return false;
         } finally {
             this.isProcessingPayment = false;
         }
-    }
-
-    requestCubeRemoval(cube) {
-        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-            this.setPaymentStatus('Server not connected');
-            return;
-        }
-
-        const cubeId = cube.userData.id;
-        if (this.pendingRemovalIds.has(cubeId)) {
-            return;
-        }
-
-        this.pendingRemovalIds.add(cubeId);
-        const payload = {
-            type: 'remove',
-            id: cubeId,
-            wallet: this.walletAddress || null,
-        };
-        this.socket.send(JSON.stringify(payload));
-        this.setPaymentStatus('Awaiting server confirmation...');
     }
 
     updateLayerColors() {
@@ -543,47 +486,45 @@ class CubeClickerGame {
         }
     }
 
+    syncLayerFromState() {
+        const visibleLayers = this.cubeData.filter(d => d.visible).map(d => d.shellLayer);
+        if (visibleLayers.length === 0) {
+            this.currentLayer = 0;
+            return;
+        }
+        this.currentLayer = Math.min(...visibleLayers);
+    }
+
     onMouseMove(event) {
-        // Calculate mouse position in normalized device coordinates
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-        // Handle camera rotation when dragging
         if (this.isDragging) {
             const deltaX = event.clientX - this.previousMousePosition.x;
             const deltaY = event.clientY - this.previousMousePosition.y;
 
-            // Mark as moved if drag distance exceeds threshold
             if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
                 this.dragMoved = true;
             }
 
-            // Update camera angles
             this.cameraTheta -= deltaX * 0.01;
             this.cameraPhi += deltaY * 0.01;
-
-            // Clamp vertical angle to prevent flipping
             this.cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraPhi));
 
             this.previousMousePosition = { x: event.clientX, y: event.clientY };
-            return; // Don't update hover while dragging
+            return;
         }
 
-        // Update raycaster
         this.raycaster.setFromCamera(this.mouse, this.camera);
-
-        // Get intersections with clickable cubes only (current layer)
         const clickableCubes = this.getClickableCubes();
         const intersects = this.raycaster.intersectObjects(clickableCubes);
 
-        // Reset previously hovered cube
         if (this.hoveredCube) {
             this.hoveredCube.material.color.setHex(this.hoveredCube.userData.originalColor);
             this.hoveredCube.scale.set(1, 1, 1);
             this.hoveredCube = null;
         }
 
-        // Highlight hovered cube (only if on current layer)
         if (intersects.length > 0) {
             this.hoveredCube = intersects[0].object;
             this.hoveredCube.material.color.setHex(CONFIG.CUBE_HOVER_COLOR);
@@ -592,7 +533,6 @@ class CubeClickerGame {
     }
 
     async handleCubeClick(event) {
-        // Prevent clicking UI elements
         if (event.target.tagName === 'BUTTON') return;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -601,10 +541,7 @@ class CubeClickerGame {
 
         if (intersects.length > 0) {
             const cube = intersects[0].object;
-            const paid = await this.executeCubePayment();
-            if (paid) {
-                this.requestCubeRemoval(cube);
-            }
+            await this.removeCubeWithPayment(cube);
         }
     }
 
@@ -613,7 +550,6 @@ class CubeClickerGame {
 
         this.animatingCubes.add(cube);
 
-        // Animate cube removal
         const startTime = Date.now();
         const startScale = { x: cube.scale.x, y: cube.scale.y, z: cube.scale.z };
         const startY = cube.position.y;
@@ -621,11 +557,8 @@ class CubeClickerGame {
         const animateRemoval = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / CONFIG.REMOVE_ANIMATION_DURATION, 1);
-
-            // Ease out cubic
             const easeProgress = 1 - Math.pow(1 - progress, 3);
 
-            // Scale down and move up
             cube.scale.set(
                 startScale.x * (1 - easeProgress),
                 startScale.y * (1 - easeProgress),
@@ -641,6 +574,7 @@ class CubeClickerGame {
                 cube.visible = false;
                 if (cube.userData.dataRef) {
                     cube.userData.dataRef.visible = false;
+                    this.addHoleMarker(cube.userData.dataRef);
                 }
                 this.animatingCubes.delete(cube);
                 this.updateStats();
@@ -654,10 +588,13 @@ class CubeClickerGame {
 
     updateStats() {
         const remaining = this.cubeData.filter(d => d.visible).length;
-        document.getElementById('cube-count').textContent = remaining;
-        document.getElementById('clicked-count').textContent = this.clickedCount;
+        document.getElementById('cube-count').textContent = remaining.toLocaleString();
+        document.getElementById('clicked-count').textContent = this.clickedCount.toLocaleString();
         document.getElementById('layer-count').textContent = this.currentLayer + 1;
         document.getElementById('total-layers').textContent = MAX_LAYERS;
+        if (this.myClickedEl) {
+            this.myClickedEl.textContent = this.myClickedCount;
+        }
     }
 
     checkWinner() {
@@ -677,26 +614,42 @@ class CubeClickerGame {
     }
 
     resetGame() {
-        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({ type: 'reset' }));
-            this.setPaymentStatus('Reset requested...');
-            return;
-        }
-        this.applyLocalReset();
-    }
-
-    applyLocalReset() {
+        // In production, this would require owner authority on the contract
         this.hideWinnerModal();
         this.clickedCount = 0;
+        this.myClickedCount = 0;
         this.animatingCubes.clear();
-        this.currentLayer = 0; // Reset to outer shell
+        this.currentLayer = 0;
+        this.removedCubesCache.clear();
 
         this.cubeData.forEach(d => {
             d.visible = true;
         });
 
+        localStorage.removeItem('removedCubes');
         this.loadCurrentLayerMeshes();
         this.updateStats();
+    }
+
+    addHoleMarker(data) {
+        if (data.shellLayer !== this.currentLayer) return;
+        if (this.holeMarkers.has(data.id)) return;
+
+        const size = CONFIG.CUBE_SIZE * 0.35;
+        const geometry = new THREE.BoxGeometry(size, size, size);
+        const material = new THREE.MeshBasicMaterial({
+            color: CONFIG.HOLE_COLOR,
+            transparent: true,
+            opacity: 0.6,
+        });
+        const marker = new THREE.Mesh(geometry, material);
+        marker.position.set(
+            data.gridX * CONFIG.CUBE_SPACING,
+            data.originalPosY,
+            data.gridZ * CONFIG.CUBE_SPACING
+        );
+        this.scene.add(marker);
+        this.holeMarkers.set(data.id, marker);
     }
 
     onWindowResize() {
@@ -712,12 +665,10 @@ class CubeClickerGame {
         const centerY = (CONFIG.GRID_Y * CONFIG.CUBE_SPACING) / 2;
         const centerZ = (CONFIG.GRID_Z * CONFIG.CUBE_SPACING) / 2;
 
-        // Auto-rotate slowly when not dragging
         if (this.autoRotate) {
             this.cameraTheta += 0.002;
         }
 
-        // Calculate camera position using spherical coordinates
         this.camera.position.x = centerX + Math.sin(this.cameraTheta) * Math.sin(this.cameraPhi) * this.cameraDistance;
         this.camera.position.y = centerY + Math.cos(this.cameraPhi) * this.cameraDistance;
         this.camera.position.z = centerZ + Math.cos(this.cameraTheta) * Math.sin(this.cameraPhi) * this.cameraDistance;
