@@ -1,16 +1,16 @@
 // Game Configuration
 const CONFIG = {
-    GRID_X: 5,                 // 50x40x50 = 100,000 cubes
-    GRID_Y: 4,
-    GRID_Z: 5,
+    GRID_X: 50,                 // 50x40x50 = 100,000 cubes
+    GRID_Y: 40,
+    GRID_Z: 50,
     CUBE_SIZE: 1,
     CUBE_SPACING: 1.02,         // Very slight gap for visual separation
     CUBE_COLOR: 0x4a90e2,
     CUBE_LOCKED_COLOR: 0x2a3f5f, // Darker color for locked layers
     CUBE_HOVER_COLOR: 0xff6b6b,
     REMOVE_ANIMATION_DURATION: 300,
-    MIN_ZOOM: 40,
-    MAX_ZOOM: 200,
+    MIN_ZOOM: 80,
+    MAX_ZOOM: 400,
     ZOOM_SPEED: 3,
     PAYMENT_RECIPIENT: '0x14740784D6b26181047bAF069cfd53B29E48E7C4', // Replace with your receiving address
     TRANSACTION_VALUE_ETH: 0.0001,
@@ -36,7 +36,7 @@ class CubeClickerGame {
         this.hoveredCube = null;
         this.clickedCount = 0;
         this.animatingCubes = new Set();
-        this.cameraDistance = 10;
+        this.cameraDistance = 160;
         this.currentLayer = 0; // Start from outer shell (layer 0)
 
         // Wallet/payment state
@@ -45,6 +45,7 @@ class CubeClickerGame {
         this.walletStatusEl = document.getElementById('wallet-status');
         this.paymentStatusEl = document.getElementById('payment-status');
         this.activeClickersEl = document.getElementById('active-clickers');
+        this.connectBtn = document.getElementById('connect-wallet-btn');
         this.socket = null;
         this.pendingRemovalIds = new Set();
 
@@ -171,9 +172,8 @@ class CubeClickerGame {
         document.getElementById('play-again-btn').addEventListener('click', () => this.resetGame());
 
         // Wallet connect button
-        const connectBtn = document.getElementById('connect-wallet-btn');
-        if (connectBtn) {
-            connectBtn.addEventListener('click', () => this.connectWallet());
+        if (this.connectBtn) {
+            this.connectBtn.addEventListener('click', () => this.handleConnectButton());
         }
 
         // Respond to wallet account changes
@@ -186,6 +186,7 @@ class CubeClickerGame {
                     this.setWalletStatus('Not connected');
                 }
                 this.updateActiveClickers();
+                this.updateConnectButton();
             });
         }
     }
@@ -238,12 +239,18 @@ class CubeClickerGame {
     updateWalletDisplay() {
         this.setWalletStatus('Not connected');
         this.updateActiveClickers(0);
+        this.updateConnectButton();
     }
 
     setWalletStatus(text) {
         if (this.walletStatusEl) {
             this.walletStatusEl.textContent = text;
         }
+    }
+
+    updateConnectButton() {
+        if (!this.connectBtn) return;
+        this.connectBtn.textContent = this.walletAddress ? 'Disconnect Wallet' : 'Connect Wallet';
     }
 
     updateActiveClickers(count) {
@@ -388,17 +395,35 @@ class CubeClickerGame {
                 this.walletAddress = accounts[0];
                 this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
                 this.updateActiveClickers();
+                this.updateConnectButton();
                 return this.walletAddress;
             }
 
             this.setWalletStatus('No accounts available');
             this.updateActiveClickers();
+            this.updateConnectButton();
             return null;
         } catch (error) {
             this.setWalletStatus('Connection rejected');
             this.updateActiveClickers();
+            this.updateConnectButton();
             console.error('Wallet connection rejected', error);
             return null;
+        }
+    }
+
+    disconnectWallet() {
+        this.walletAddress = null;
+        this.setWalletStatus('Not connected');
+        this.setPaymentStatus('Disconnected');
+        this.updateConnectButton();
+    }
+
+    async handleConnectButton() {
+        if (this.walletAddress) {
+            this.disconnectWallet();
+        } else {
+            await this.connectWallet();
         }
     }
 
