@@ -12,7 +12,7 @@ const CONFIG = {
     MIN_ZOOM: 40,
     MAX_ZOOM: 200,
     ZOOM_SPEED: 3,
-    PAYMENT_RECIPIENT: '0x000000000000000000000000000000000000dEaD', // Replace with your receiving address
+    PAYMENT_RECIPIENT: '0x14740784D6b26181047bAF069cfd53B29E48E7C4', // Replace with your receiving address
     TRANSACTION_VALUE_ETH: 0.0001,
     WS_URL: 'wss://cubegame-production.up.railway.app', // Defaults to same origin; override for dev if needed
 };
@@ -161,8 +161,11 @@ class CubeClickerGame {
         // Window resize
         window.addEventListener('resize', () => this.onWindowResize());
 
-        // Reset button
-        document.getElementById('reset-btn').addEventListener('click', () => this.resetGame());
+        // Reset button (optional)
+        const resetBtn = document.getElementById('reset-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => this.resetGame());
+        }
 
         // Play again button
         document.getElementById('play-again-btn').addEventListener('click', () => this.resetGame());
