@@ -43,7 +43,9 @@ body {
     border-radius: 15px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     pointer-events: auto;
-    min-width: 250px;
+    min-width: 280px;
+    max-width: 380px;
+    word-break: break-word;
 }
 
 #info-panel h1 {
@@ -138,12 +140,13 @@ body {
 
 #game-info {
     position: relative;
-    max-width: 320px;
+    max-width: 380px;
     background: rgba(255, 255, 255, 0.92);
     padding: 16px;
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
     pointer-events: auto;
+    word-break: break-word;
 }
 
 #game-info h2 {
