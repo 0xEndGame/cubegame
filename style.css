@@ -115,6 +115,45 @@ body {
     display: none;
 }
 
+.status-note {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #c53030;
+    font-weight: 600;
+}
+
+.rules ul {
+    margin-left: 18px;
+    margin-top: 6px;
+    color: #333;
+}
+
+#game-info {
+    position: absolute;
+    top: 260px;
+    left: 20px;
+    right: 20px;
+    max-width: 320px;
+    background: rgba(255, 255, 255, 0.92);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    pointer-events: auto;
+}
+
+#game-info h2 {
+    font-size: 18px;
+    color: #4a4a4a;
+    margin-bottom: 8px;
+}
+
+#game-info p,
+#game-info li {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.5;
+}
+
 .modal-content {
     background: white;
     padding: 40px;

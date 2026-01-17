@@ -16,7 +16,7 @@ const CONFIG = {
 
     // Solana Configuration
     SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
-    PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
+    PRICE_PER_CUBE_SOL: 0.0001, // 0.0001 SOL per cube
     TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
     SOLANA_RPC_URL: 'https://cubegame-production.up.railway.app/solana-rpc', // Optional override (e.g. https://your-railway.app/solana-rpc)
     PRIORITY_FEE_MICRO_LAMPORTS: 20000, // priority fee tip (adjust higher if still slow)
@@ -577,6 +577,10 @@ class CubeClickerGame {
     }
 
     async handleCubeClick(event) {
+        // Game temporarily disabled before official start
+        this.setPaymentStatus('Clicking disabled until 19.01 5PM CET');
+        return;
+
         if (event.target.tagName === 'BUTTON') return;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
