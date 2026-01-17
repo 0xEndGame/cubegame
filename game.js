@@ -30,7 +30,9 @@ class CubeClickerGame {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
-        this.cubes = [];
+        this.cubes = []; // meshes for current layer only
+        this.cubeData = [];
+        this.cubeLookup = new Map();
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.hoveredCube = null;
@@ -58,7 +60,8 @@ class CubeClickerGame {
         this.autoRotate = true;
 
         this.init();
-        this.createCubeGrid();
+        this.createCubeData();
+        this.loadCurrentLayerMeshes();
         this.setupEventListeners();
         this.setupNetwork();
         this.updateWalletDisplay();
@@ -106,44 +109,77 @@ class CubeClickerGame {
         this.scene.add(pointLight);
     }
 
-    createCubeGrid() {
-        const geometry = new THREE.BoxGeometry(CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE);
-
-        // Create a 3D cube formation (50x40x50 = 100,000 cubes)
+    createCubeData() {
+        this.cubeData = [];
+        this.cubeLookup.clear();
         for (let x = 0; x < CONFIG.GRID_X; x++) {
             for (let y = 0; y < CONFIG.GRID_Y; y++) {
                 for (let z = 0; z < CONFIG.GRID_Z; z++) {
-                    const material = new THREE.MeshStandardMaterial({
-                        color: CONFIG.CUBE_COLOR,
-                        metalness: 0.3,
-                        roughness: 0.4
-                    });
-
-                    const cube = new THREE.Mesh(geometry, material);
-                    cube.position.set(
-                        x * CONFIG.CUBE_SPACING,
-                        y * CONFIG.CUBE_SPACING,
-                        z * CONFIG.CUBE_SPACING
-                    );
-                    cube.castShadow = true;
-                    cube.receiveShadow = true;
-
-                    // Store shell layer and original position
-                    cube.userData = {
-                        originalColor: CONFIG.CUBE_COLOR,
+                    const data = {
                         id: `cube-${x}-${y}-${z}`,
                         gridX: x,
                         gridY: y,
                         gridZ: z,
                         shellLayer: this.getShellLayer(x, y, z),
-                        originalPosY: y * CONFIG.CUBE_SPACING
+                        originalPosY: y * CONFIG.CUBE_SPACING,
+                        visible: true,
                     };
-
-                    this.scene.add(cube);
-                    this.cubes.push(cube);
+                    this.cubeData.push(data);
+                    this.cubeLookup.set(data.id, data);
                 }
             }
         }
+    }
+
+    clearCurrentLayerMeshes() {
+        this.cubes.forEach(mesh => {
+            this.scene.remove(mesh);
+            mesh.geometry.dispose();
+            mesh.material.dispose();
+        });
+        this.cubes = [];
+        this.hoveredCube = null;
+    }
+
+    loadCurrentLayerMeshes() {
+        this.clearCurrentLayerMeshes();
+        const sharedGeometry = new THREE.BoxGeometry(CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE);
+
+        // Only create meshes for the current shell layer to reduce load
+        this.cubeData.forEach(data => {
+            if (!data.visible) return;
+            if (data.shellLayer !== this.currentLayer) return;
+
+            const material = new THREE.MeshStandardMaterial({
+                color: CONFIG.CUBE_COLOR,
+                metalness: 0.3,
+                roughness: 0.4,
+                opacity: 1,
+                transparent: false,
+            });
+
+            const cube = new THREE.Mesh(sharedGeometry.clone(), material);
+            cube.position.set(
+                data.gridX * CONFIG.CUBE_SPACING,
+                data.gridY * CONFIG.CUBE_SPACING,
+                data.gridZ * CONFIG.CUBE_SPACING
+            );
+            cube.castShadow = true;
+            cube.receiveShadow = true;
+
+            cube.userData = {
+                originalColor: CONFIG.CUBE_COLOR,
+                id: data.id,
+                shellLayer: data.shellLayer,
+                originalPosY: data.originalPosY,
+                dataRef: data,
+            };
+
+            this.scene.add(cube);
+            this.cubes.push(cube);
+        });
+
+        this.updateLayerColors();
     }
 
     setupEventListeners() {
@@ -231,8 +267,7 @@ class CubeClickerGame {
     getClickableCubes() {
         return this.cubes.filter(cube =>
             cube.visible &&
-            !this.animatingCubes.has(cube) &&
-            this.isOnCurrentLayer(cube)
+            !this.animatingCubes.has(cube)
         );
     }
 
@@ -320,16 +355,9 @@ class CubeClickerGame {
     applyServerState(payload) {
         if (payload.cubes) {
             Object.entries(payload.cubes).forEach(([cubeId, visible]) => {
-                const cube = this.cubes.find(c => c.userData.id === cubeId);
-                if (cube) {
-                    cube.visible = !!visible;
-                    if (!cube.visible) {
-                        cube.scale.set(0.001, 0.001, 0.001);
-                    } else {
-                        cube.scale.set(1, 1, 1);
-                        cube.position.y = cube.userData.originalPosY;
-                        cube.rotation.set(0, 0, 0);
-                    }
+                const data = this.cubeLookup.get(cubeId);
+                if (data) {
+                    data.visible = !!visible;
                 }
             });
         }
@@ -338,6 +366,7 @@ class CubeClickerGame {
         }
         this.hideWinnerModal();
         this.syncLayerFromState();
+        this.loadCurrentLayerMeshes();
         this.updateStats();
         this.checkWinner();
     }
@@ -345,25 +374,31 @@ class CubeClickerGame {
     handleCubeRemovedFromServer(data) {
         const cubeId = data.id;
         const cube = this.cubes.find(c => c.userData.id === cubeId);
-        if (!cube || !cube.visible) {
-            this.pendingRemovalIds.delete(cubeId);
-            return;
-        }
-
         const clickedCount = typeof data.clickedCount === 'number' ? data.clickedCount : this.clickedCount;
         this.clickedCount = clickedCount;
         this.pendingRemovalIds.delete(cubeId);
+
+        // If the cube is not on the current layer (e.g., already cleared locally), just mark invisible
+        if (!cube) {
+            const dataRef = this.cubeLookup.get(cubeId);
+            if (dataRef) dataRef.visible = false;
+            this.checkLayerComplete();
+            this.updateStats();
+            return;
+        }
+
         this.animateCubeRemoval(cube);
     }
 
     syncLayerFromState() {
-        const visibleCubes = this.cubes.filter(c => c.visible);
-        if (visibleCubes.length === 0) {
+        const visibleLayers = this.cubeData
+            .filter(d => d.visible)
+            .map(d => d.shellLayer);
+        if (visibleLayers.length === 0) {
             this.currentLayer = 0;
             return;
         }
-        this.currentLayer = Math.min(...visibleCubes.map(c => c.userData.shellLayer));
-        this.updateLayerColors();
+        this.currentLayer = Math.min(...visibleLayers);
     }
 
     setPaymentStatus(text) {
@@ -493,31 +528,18 @@ class CubeClickerGame {
     updateLayerColors() {
         this.cubes.forEach(cube => {
             if (!cube.visible) return;
-
-            if (this.isOnCurrentLayer(cube)) {
-                cube.userData.originalColor = CONFIG.CUBE_COLOR;
-                cube.material.color.setHex(CONFIG.CUBE_COLOR);
-                cube.material.opacity = 1;
-                cube.material.transparent = false;
-            } else {
-                cube.userData.originalColor = CONFIG.CUBE_LOCKED_COLOR;
-                cube.material.color.setHex(CONFIG.CUBE_LOCKED_COLOR);
-                cube.material.opacity = 0.6;
-                cube.material.transparent = true;
-            }
+            cube.userData.originalColor = CONFIG.CUBE_COLOR;
+            cube.material.color.setHex(CONFIG.CUBE_COLOR);
+            cube.material.opacity = 1;
+            cube.material.transparent = false;
         });
     }
 
     checkLayerComplete() {
-        // Check if current shell layer has any visible cubes left
-        const layerCubes = this.cubes.filter(cube =>
-            cube.visible && cube.userData.shellLayer === this.currentLayer
-        );
-
-        if (layerCubes.length === 0 && this.currentLayer < MAX_LAYERS - 1) {
-            // Move to next inner layer
+        const remainingInLayer = this.cubeData.some(d => d.visible && d.shellLayer === this.currentLayer);
+        if (!remainingInLayer && this.currentLayer < MAX_LAYERS - 1) {
             this.currentLayer++;
-            this.updateLayerColors();
+            this.loadCurrentLayerMeshes();
         }
     }
 
@@ -617,9 +639,12 @@ class CubeClickerGame {
                 requestAnimationFrame(animateRemoval);
             } else {
                 cube.visible = false;
+                if (cube.userData.dataRef) {
+                    cube.userData.dataRef.visible = false;
+                }
                 this.animatingCubes.delete(cube);
                 this.updateStats();
-                this.syncLayerFromState();
+                this.checkLayerComplete();
                 this.checkWinner();
             }
         };
@@ -628,7 +653,7 @@ class CubeClickerGame {
     }
 
     updateStats() {
-        const remaining = this.cubes.filter(cube => cube.visible).length;
+        const remaining = this.cubeData.filter(d => d.visible).length;
         document.getElementById('cube-count').textContent = remaining;
         document.getElementById('clicked-count').textContent = this.clickedCount;
         document.getElementById('layer-count').textContent = this.currentLayer + 1;
@@ -636,7 +661,7 @@ class CubeClickerGame {
     }
 
     checkWinner() {
-        const remaining = this.cubes.filter(cube => cube.visible).length;
+        const remaining = this.cubeData.filter(d => d.visible).length;
         if (remaining === 0) {
             this.showWinnerModal();
         }
@@ -666,14 +691,11 @@ class CubeClickerGame {
         this.animatingCubes.clear();
         this.currentLayer = 0; // Reset to outer shell
 
-        this.cubes.forEach(cube => {
-            cube.visible = true;
-            cube.scale.set(1, 1, 1);
-            cube.position.y = cube.userData.originalPosY;
-            cube.rotation.set(0, 0, 0);
+        this.cubeData.forEach(d => {
+            d.visible = true;
         });
 
-        this.updateLayerColors();
+        this.loadCurrentLayerMeshes();
         this.updateStats();
     }
 
