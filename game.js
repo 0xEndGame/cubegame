@@ -161,19 +161,18 @@ class CubeClickerGame {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.shadowMap.enabled = true;
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // clamp for performance
+        this.renderer.shadowMap.enabled = false; // disable shadows for performance
         document.getElementById('game-container').appendChild(this.renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         this.scene.add(ambientLight);
 
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(10, 20, 10);
-        directionalLight.castShadow = true;
         this.scene.add(directionalLight);
 
-        const pointLight = new THREE.PointLight(0x667eea, 1, 100);
+        const pointLight = new THREE.PointLight(0x667eea, 0.6, 100);
         pointLight.position.set(5, 10, 5);
         this.scene.add(pointLight);
     }
@@ -225,10 +224,8 @@ class CubeClickerGame {
             if (data.shellLayer !== this.currentLayer) return;
 
             if (data.visible) {
-                const material = new THREE.MeshStandardMaterial({
+                const material = new THREE.MeshLambertMaterial({
                     color: CONFIG.CUBE_COLOR,
-                    metalness: 0.3,
-                    roughness: 0.4,
                     opacity: 1,
                     transparent: false,
                 });
@@ -239,8 +236,8 @@ class CubeClickerGame {
                     data.gridY * CONFIG.CUBE_SPACING,
                     data.gridZ * CONFIG.CUBE_SPACING
                 );
-                cube.castShadow = true;
-                cube.receiveShadow = true;
+                cube.castShadow = false;
+                cube.receiveShadow = false;
 
                 cube.userData = {
                     originalColor: CONFIG.CUBE_COLOR,
@@ -434,8 +431,8 @@ class CubeClickerGame {
                 })
             );
 
-            // Get recent blockhash
-            const { blockhash } = await this.connection.getLatestBlockhash();
+            // Get recent blockhash (with lastValidBlockHeight for confirmation)
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
             transaction.recentBlockhash = blockhash;
             transaction.feePayer = this.walletPublicKey;
 
@@ -448,7 +445,10 @@ class CubeClickerGame {
             this.setPaymentStatus('Confirming transaction...');
 
             // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction(signature, 'confirmed');
+            const confirmation = await this.connection.confirmTransaction(
+                { signature, blockhash, lastValidBlockHeight },
+                'confirmed'
+            );
 
             if (confirmation.value.err) {
                 throw new Error('Transaction failed');
