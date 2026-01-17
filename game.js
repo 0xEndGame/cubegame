@@ -109,7 +109,7 @@ class CubeClickerGame {
     createCubeGrid() {
         const geometry = new THREE.BoxGeometry(CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE, CONFIG.CUBE_SIZE);
 
-        // Create a 3D cube formation (5x4x5 = 100 cubes)
+        // Create a 3D cube formation (50x40x50 = 100,000 cubes)
         for (let x = 0; x < CONFIG.GRID_X; x++) {
             for (let y = 0; y < CONFIG.GRID_Y; y++) {
                 for (let z = 0; z < CONFIG.GRID_Z; z++) {
