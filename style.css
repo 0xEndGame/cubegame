@@ -1,0 +1,158 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+#game-container {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+}
+
+#ui-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+#info-panel {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    pointer-events: auto;
+    min-width: 250px;
+}
+
+#info-panel h1 {
+    font-size: 24px;
+    margin-bottom: 15px;
+    color: #667eea;
+    text-align: center;
+}
+
+#stats {
+    margin-bottom: 15px;
+}
+
+#stats p {
+    font-size: 16px;
+    margin: 8px 0;
+    color: #333;
+}
+
+#stats span {
+    font-weight: bold;
+    color: #764ba2;
+}
+
+#reset-btn, #play-again-btn, #connect-wallet-btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#reset-btn:hover, #play-again-btn:hover, #connect-wallet-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+#reset-btn:active, #play-again-btn:active, #connect-wallet-btn:active {
+    transform: translateY(0);
+}
+
+#winner-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: auto;
+    animation: fadeIn 0.3s ease-in;
+}
+
+#winner-modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.4s ease-out;
+    max-width: 400px;
+}
+
+.modal-content h2 {
+    font-size: 32px;
+    margin-bottom: 20px;
+    color: #667eea;
+}
+
+.modal-content p {
+    font-size: 18px;
+    margin: 15px 0;
+    color: #333;
+}
+
+.final-stats {
+    font-weight: bold;
+    color: #764ba2;
+    font-size: 20px;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+canvas {
+    display: block;
+    cursor: grab;
+}
+
+canvas:active {
+    cursor: grabbing;
+}
