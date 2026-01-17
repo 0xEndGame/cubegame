@@ -14,7 +14,7 @@ const CONFIG = {
     ZOOM_SPEED: 3,
     PAYMENT_RECIPIENT: '0x000000000000000000000000000000000000dEaD', // Replace with your receiving address
     TRANSACTION_VALUE_ETH: 0.0001,
-    WS_URL: null, // Defaults to same origin; override for dev if needed
+    WS_URL: 'wss://cubegame-production.up.railway.app', // Defaults to same origin; override for dev if needed
 };
 
 // Calculate total shell layers (like an onion)
