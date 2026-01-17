@@ -19,6 +19,7 @@ const CONFIG = {
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
     TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
     SOLANA_RPC_URL: 'https://cubegame-production.up.railway.app/solana-rpc', // Optional override (e.g. https://your-railway.app/solana-rpc)
+    PRIORITY_FEE_MICRO_LAMPORTS: 20000, // priority fee tip (adjust higher if still slow)
 };
 
 // Solana RPC endpoints
@@ -425,7 +426,18 @@ class CubeClickerGame {
 
             const maxAttempts = 2;
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                const transaction = new solanaWeb3.Transaction().add(
+                const transaction = new solanaWeb3.Transaction();
+
+                // Add priority fee (tip) to improve landing speed
+                if (CONFIG.PRIORITY_FEE_MICRO_LAMPORTS && CONFIG.PRIORITY_FEE_MICRO_LAMPORTS > 0) {
+                    transaction.add(
+                        solanaWeb3.ComputeBudgetProgram.setComputeUnitPrice({
+                            microLamports: CONFIG.PRIORITY_FEE_MICRO_LAMPORTS,
+                        })
+                    );
+                }
+
+                transaction.add(
                     solanaWeb3.SystemProgram.transfer({
                         fromPubkey: this.walletPublicKey,
                         toPubkey: treasury,
