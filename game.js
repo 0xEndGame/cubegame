@@ -18,7 +18,7 @@ const CONFIG = {
     SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
     TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
-    SOLANA_RPC_URL: '', // Optional override (e.g. https://your-railway.app/solana-rpc)
+    SOLANA_RPC_URL: 'https://cubegame-production.up.railway.app/solana-rpc', // Optional override (e.g. https://your-railway.app/solana-rpc)
 };
 
 // Solana RPC endpoints
