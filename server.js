@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 // Serve static assets from the project root (index.html, game.js, style.css)
 app.use(express.static(path.join(__dirname)));
+app.use(express.json({ limit: '1mb' }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -118,6 +119,28 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         broadcastActive();
     });
+});
+
+// Solana RPC proxy to keep API keys on the server
+app.post('/solana-rpc', async (req, res) => {
+    try {
+        const rpcUrl = process.env.SOLANA_RPC_URL
+            || (process.env.HELIUS_API_KEY
+                ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+                : 'https://api.mainnet-beta.solana.com');
+
+        const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(req.body || {}),
+        });
+
+        const body = await response.text();
+        res.status(response.status).send(body);
+    } catch (error) {
+        console.error('RPC proxy error:', error);
+        res.status(500).json({ error: 'RPC proxy failed' });
+    }
 });
 
 initState();

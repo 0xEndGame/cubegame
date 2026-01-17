@@ -18,6 +18,7 @@ const CONFIG = {
     SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
     TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
+    SOLANA_RPC_URL: '', // Optional override (e.g. https://your-railway.app/solana-rpc)
 };
 
 // Solana RPC endpoints
@@ -83,10 +84,18 @@ class CubeClickerGame {
         this.updateStats();
     }
 
+    getSolanaRpcUrl() {
+        if (CONFIG.SOLANA_RPC_URL) return CONFIG.SOLANA_RPC_URL;
+        if (typeof window !== 'undefined' && window.location?.protocol?.startsWith('http')) {
+            return new URL('/solana-rpc', window.location.origin).toString();
+        }
+        return SOLANA_RPC[CONFIG.SOLANA_NETWORK];
+    }
+
     // Initialize Solana connection
     async initSolana() {
         try {
-            const rpcUrl = SOLANA_RPC[CONFIG.SOLANA_NETWORK];
+            const rpcUrl = this.getSolanaRpcUrl();
             this.connection = new solanaWeb3.Connection(rpcUrl, 'confirmed');
             this.setPaymentStatus(`Connected to Solana ${CONFIG.SOLANA_NETWORK}`);
 
@@ -460,7 +469,9 @@ class CubeClickerGame {
 
         } catch (error) {
             console.error('Payment failed:', error);
-            if (error.message?.includes('User rejected')) {
+            if (error.message?.includes('403')) {
+                this.setPaymentStatus('RPC blocked (set SOLANA_RPC_URL)');
+            } else if (error.message?.includes('User rejected')) {
                 this.setPaymentStatus('Transaction cancelled');
             } else {
                 this.setPaymentStatus('Transaction failed');
