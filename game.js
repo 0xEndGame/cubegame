@@ -21,11 +21,11 @@ const CONFIG = {
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
 };
 
-// Solana RPC endpoints
+// Solana RPC endpoints (using reliable public RPCs)
 const SOLANA_RPC = {
     'devnet': 'https://api.devnet.solana.com',
     'testnet': 'https://api.testnet.solana.com',
-    'mainnet-beta': 'https://api.mainnet-beta.solana.com',
+    'mainnet-beta': 'https://rpc.ankr.com/solana', // Free public RPC
 };
 
 // Calculate total shell layers (like an onion)
