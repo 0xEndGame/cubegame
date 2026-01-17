@@ -10,6 +10,17 @@ const GRID_Z = 5;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Basic CORS so the frontend (e.g., Vercel) can reach this Railway server
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+});
+
 // Serve static assets from the project root (index.html, game.js, style.css)
 app.use(express.static(path.join(__dirname)));
 app.use(express.json({ limit: '1mb' }));
