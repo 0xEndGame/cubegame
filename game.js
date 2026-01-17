@@ -10,7 +10,7 @@ const CONFIG = {
     CUBE_HOVER_COLOR: 0xff6b6b,
     HOLE_COLOR: 0xff9f43,
     REMOVE_ANIMATION_DURATION: 300,
-    MIN_ZOOM: 80,
+    MIN_ZOOM: 20,
     MAX_ZOOM: 400,
     ZOOM_SPEED: 3,
 
@@ -423,56 +423,74 @@ class CubeClickerGame {
             }
             const treasury = new solanaWeb3.PublicKey(CONFIG.TREASURY_WALLET);
 
-            const transaction = new solanaWeb3.Transaction().add(
-                solanaWeb3.SystemProgram.transfer({
-                    fromPubkey: this.walletPublicKey,
-                    toPubkey: treasury,
-                    lamports: lamports,
-                })
-            );
+            const maxAttempts = 2;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const transaction = new solanaWeb3.Transaction().add(
+                    solanaWeb3.SystemProgram.transfer({
+                        fromPubkey: this.walletPublicKey,
+                        toPubkey: treasury,
+                        lamports: lamports,
+                    })
+                );
 
-            // Get recent blockhash (with lastValidBlockHeight for confirmation)
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
-            transaction.recentBlockhash = blockhash;
-            transaction.feePayer = this.walletPublicKey;
+                // Get recent blockhash (with lastValidBlockHeight for confirmation)
+                const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = this.walletPublicKey;
 
-            this.setPaymentStatus('Please approve in Phantom...');
+                this.setPaymentStatus(attempt === 0 ? 'Please approve in Phantom...' : 'Retrying with fresh blockhash...');
 
-            // Sign and send
-            const signed = await window.solana.signTransaction(transaction);
-            const signature = await this.connection.sendRawTransaction(signed.serialize());
+                // Sign and send
+                const signed = await window.solana.signTransaction(transaction);
+                const signature = await this.connection.sendRawTransaction(signed.serialize());
 
-            this.setPaymentStatus('Confirming transaction...');
+                this.setPaymentStatus('Confirming transaction...');
 
-            // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction(
-                { signature, blockhash, lastValidBlockHeight },
-                'confirmed'
-            );
+                try {
+                    const confirmation = await this.connection.confirmTransaction(
+                        { signature, blockhash, lastValidBlockHeight },
+                        'confirmed'
+                    );
 
-            if (confirmation.value.err) {
-                throw new Error('Transaction failed');
+                    if (confirmation.value.err) {
+                        throw new Error('Transaction failed');
+                    }
+
+                    this.setPaymentStatus(`Confirmed! ${signature.slice(0, 8)}...`);
+
+                    // Mark cube as removed
+                    this.removedCubesCache.add(cubeId);
+                    this.saveRemovedCubes();
+                    this.clickedCount++;
+                    this.myClickedCount++;
+
+                    // Animate removal
+                    this.animateCubeRemoval(cube);
+
+                    return true;
+                } catch (confirmErr) {
+                    const msg = confirmErr?.message || '';
+                    if (attempt < maxAttempts - 1 &&
+                        (msg.includes('block height exceeded') || msg.includes('expired'))) {
+                        // try again with a fresh blockhash
+                        continue;
+                    }
+                    throw confirmErr;
+                }
             }
 
-            this.setPaymentStatus(`Confirmed! ${signature.slice(0, 8)}...`);
-
-            // Mark cube as removed
-            this.removedCubesCache.add(cubeId);
-            this.saveRemovedCubes();
-            this.clickedCount++;
-            this.myClickedCount++;
-
-            // Animate removal
-            this.animateCubeRemoval(cube);
-
-            return true;
+            // Should not reach here
+            throw new Error('Transaction failed after retries');
 
         } catch (error) {
             console.error('Payment failed:', error);
-            if (error.message?.includes('403')) {
+            const msg = error.message || '';
+            if (msg.includes('403')) {
                 this.setPaymentStatus('RPC blocked (set SOLANA_RPC_URL)');
-            } else if (error.message?.includes('User rejected')) {
+            } else if (msg.includes('User rejected')) {
                 this.setPaymentStatus('Transaction cancelled');
+            } else if (msg.includes('block height exceeded') || msg.includes('expired')) {
+                this.setPaymentStatus('Transaction expired, try again');
             } else {
                 this.setPaymentStatus('Transaction failed');
             }
