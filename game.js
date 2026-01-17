@@ -17,21 +17,14 @@ const CONFIG = {
     // Solana Configuration
     SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
     PRICE_PER_CUBE_SOL: 0.001, // 0.001 SOL per cube
+    TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
 };
 
-// Check if private config is loaded
-if (typeof PRIVATE_CONFIG === 'undefined') {
-    console.error('config.js not loaded! Copy config.example.js to config.js and fill in your API keys.');
-    alert('Missing config.js! Please copy config.example.js to config.js and add your Helius API key.');
-}
-
-// Solana RPC endpoints (API key loaded from config.js)
+// Solana RPC endpoints
 const SOLANA_RPC = {
     'devnet': 'https://api.devnet.solana.com',
     'testnet': 'https://api.testnet.solana.com',
-    'mainnet-beta': typeof PRIVATE_CONFIG !== 'undefined'
-        ? `https://mainnet.helius-rpc.com/?api-key=${PRIVATE_CONFIG.HELIUS_API_KEY}`
-        : 'https://api.mainnet-beta.solana.com', // fallback (may be rate limited)
+    'mainnet-beta': 'https://api.mainnet-beta.solana.com',
 };
 
 // Calculate total shell layers (like an onion)
@@ -418,11 +411,11 @@ class CubeClickerGame {
             const lamports = CONFIG.PRICE_PER_CUBE_SOL * solanaWeb3.LAMPORTS_PER_SOL;
 
             // Treasury address - receives the SOL payment
-            if (typeof PRIVATE_CONFIG === 'undefined' || !PRIVATE_CONFIG.TREASURY_WALLET) {
+            if (!CONFIG.TREASURY_WALLET) {
                 this.setPaymentStatus('Treasury wallet not configured');
-                throw new Error('Treasury wallet not configured in config.js');
+                throw new Error('Treasury wallet not configured in game.js');
             }
-            const treasury = new solanaWeb3.PublicKey(PRIVATE_CONFIG.TREASURY_WALLET);
+            const treasury = new solanaWeb3.PublicKey(CONFIG.TREASURY_WALLET);
 
             const transaction = new solanaWeb3.Transaction().add(
                 solanaWeb3.SystemProgram.transfer({
