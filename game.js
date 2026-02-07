@@ -22,7 +22,7 @@ const CONFIG = {
     RPC_URL: 'https://rpc.monad.xyz',
     BLOCK_EXPLORER: 'https://monadexplorer.com',
     PRICE_PER_CUBE: '0.0001', // 0.0001 MON per cube
-    TREASURY_WALLET: '0x0000000000000000000000000000000000000000', // TODO: set your EVM treasury address
+    TREASURY_WALLET: '0xfad85cFB8ba2288Df114d4327cD218d04C7D015c', // TODO: set your EVM treasury address
 };
 
 // Calculate total shell layers (like an onion)
