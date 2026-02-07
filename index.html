@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cube Clicker - Solana</title>
+    <title>Cube Clicker - Monad</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,31 +11,28 @@
         <div id="panel-stack">
             <div id="info-panel">
                 <h1>Cube Clicker</h1>
-                <p class="subtitle">Powered by Solana</p>
+                <p class="subtitle">Powered by Monad</p>
                 <div id="stats">
-                    <p>Remaining: <span id="cube-count">0</span></p>
-                    <p>Total Removed: <span id="clicked-count">0</span></p>
-                    <p>Your Clicks: <span id="my-clicked-count">0</span></p>
-                    <p>Layer: <span id="layer-count">1</span> / <span id="total-layers">20</span></p>
-                    <p>Wallet: <span id="wallet-status">Not connected</span></p>
-                    <p>Status: <span id="payment-status">Initializing...</span></p>
-                </div>
-                <button id="connect-wallet-btn">Connect Phantom</button>
-                <p class="price-info">Cost: 0.0001 SOL per cube</p>
+                <p>Remaining: <span id="cube-count">0</span></p>
+                <p>Total Removed: <span id="clicked-count">0</span></p>
+                <p>Your Clicks: <span id="my-clicked-count">0</span></p>
+                <p>Layer: <span id="layer-count">1</span> / <span id="total-layers">20</span></p>
+                <p>Wallet: <span id="wallet-status">Not connected</span></p>
+            </div>
+                <button id="connect-wallet-btn">Connect Wallet</button>
+                <p class="price-info">Cost: 0.0001 MON per cube</p>
             </div>
             <div id="game-info">
                 <h2>Welcome to the Cube Game</h2>
-                <p>First game starts on <strong>19.01</strong> at <strong>5PM CET</strong>.</p>
+                <p>Click cubes to remove them. Each click costs <strong>0.0001 MON</strong>.</p>
                 <div class="rules">
                     <p>Rules:</p>
                     <ul>
-                        <li>Each cube click will send <strong>0.0001 SOL</strong> to the treasury.</li>
+                        <li>Each cube click will send <strong>0.0001 MON</strong> to the treasury.</li>
                         <li>Every cube click has a chance to win the treasury.</li>
                         <li>The fewer cubes remain, the higher your chance to win the jackpot.</li>
-                        <li>CA: i72or3Y3wHEKSYDgjYACJQsr8F228RqKxNeiT4LBAGS</li>
                     </ul>
                 </div>
-                <p class="status-note">Clicking is temporarily disabled until the game starts.</p>
             </div>
         </div>
         <div id="winner-modal" class="hidden">
@@ -52,8 +49,8 @@
     <!-- Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
-    <!-- Solana Web3.js -->
-    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    <!-- ethers.js v6 (EVM wallet interaction) -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 
     <!-- Game -->
     <script src="game.js"></script>

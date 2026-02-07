@@ -14,19 +14,15 @@ const CONFIG = {
     MAX_ZOOM: 400,
     ZOOM_SPEED: 3,
 
-    // Solana Configuration
-    SOLANA_NETWORK: 'mainnet-beta', // 'devnet', 'testnet', or 'mainnet-beta'
-    PRICE_PER_CUBE_SOL: 0.0001, // 0.0001 SOL per cube
-    TREASURY_WALLET: '8hMXDgqF8EWtE4ngb4dWqFT6jyLK9YW3Fq6HL9bFm2pS',
-    SOLANA_RPC_URL: 'https://cubegame-production.up.railway.app/solana-rpc', // Optional override (e.g. https://your-railway.app/solana-rpc)
-    PRIORITY_FEE_MICRO_LAMPORTS: 20000, // priority fee tip (adjust higher if still slow)
-};
-
-// Solana RPC endpoints
-const SOLANA_RPC = {
-    'devnet': 'https://api.devnet.solana.com',
-    'testnet': 'https://api.testnet.solana.com',
-    'mainnet-beta': 'https://api.mainnet-beta.solana.com',
+    // Monad EVM Configuration
+    CHAIN_ID: 143,
+    CHAIN_NAME: 'Monad',
+    CURRENCY_SYMBOL: 'MON',
+    CURRENCY_DECIMALS: 18,
+    RPC_URL: 'https://rpc.monad.xyz',
+    BLOCK_EXPLORER: 'https://monadexplorer.com',
+    PRICE_PER_CUBE: '0.0001', // 0.0001 MON per cube
+    TREASURY_WALLET: '0x0000000000000000000000000000000000000000', // TODO: set your EVM treasury address
 };
 
 // Calculate total shell layers (like an onion)
@@ -49,16 +45,17 @@ class CubeClickerGame {
         this.mouse = new THREE.Vector2();
         this.hoveredCube = null;
         this.clickedCount = 0;
-        this.myClickedCount = 0; // Personal counter
+        this.myClickedCount = 0;
         this.animatingCubes = new Set();
         this.cameraDistance = 160;
         this.currentLayer = 0;
 
-        // Solana state
-        this.connection = null;
-        this.walletPublicKey = null;
+        // EVM wallet state
+        this.provider = null;
+        this.signer = null;
+        this.walletAddress = null;
         this.isProcessingPayment = false;
-        this.removedCubesCache = new Set(); // Cache of removed cube IDs
+        this.removedCubesCache = new Set();
 
         // UI elements
         this.walletStatusEl = document.getElementById('wallet-status');
@@ -78,45 +75,103 @@ class CubeClickerGame {
         this.createCubeData();
         this.loadCurrentLayerMeshes();
         this.setupEventListeners();
-        this.initSolana();
+        this.initWallet();
         this.updateWalletDisplay();
         this.updateLayerColors();
         this.animate();
         this.updateStats();
     }
 
-    getSolanaRpcUrl() {
-        if (CONFIG.SOLANA_RPC_URL) return CONFIG.SOLANA_RPC_URL;
-        if (typeof window !== 'undefined' && window.location?.protocol?.startsWith('http')) {
-            return new URL('/solana-rpc', window.location.origin).toString();
-        }
-        return SOLANA_RPC[CONFIG.SOLANA_NETWORK];
-    }
-
-    // Initialize Solana connection
-    async initSolana() {
+    // Initialize EVM provider
+    async initWallet() {
         try {
-            const rpcUrl = this.getSolanaRpcUrl();
-            this.connection = new solanaWeb3.Connection(rpcUrl, 'confirmed');
-            this.setPaymentStatus(`Connected to Solana ${CONFIG.SOLANA_NETWORK}`);
+            if (window.ethereum) {
+                this.provider = new ethers.BrowserProvider(window.ethereum);
 
-            // Try to reconnect if wallet was previously connected
-            if (window.solana?.isPhantom && window.solana.isConnected) {
-                await this.connectWallet();
+                // Listen for account/chain changes
+                window.ethereum.on('accountsChanged', (accounts) => {
+                    if (accounts.length === 0) {
+                        this.walletAddress = null;
+                        this.signer = null;
+                        this.setWalletStatus('Not connected');
+                    } else {
+                        this.walletAddress = accounts[0];
+                        this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
+                    }
+                    this.updateConnectButton();
+                });
+
+                window.ethereum.on('chainChanged', () => {
+                    window.location.reload();
+                });
+
+                // Check if already connected
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    this.signer = await this.provider.getSigner();
+                    this.walletAddress = accounts[0];
+                    this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
+                    this.updateConnectButton();
+                    await this.ensureMonadNetwork();
+                }
+
+                this.setPaymentStatus('Ready');
+            } else {
+                this.setPaymentStatus('No EVM wallet detected');
             }
 
-            // Load removed cubes from chain (in batches for performance)
-            await this.syncRemovedCubesFromChain();
+            // Load cached removed cubes
+            await this.syncRemovedCubesFromCache();
         } catch (error) {
-            console.error('Solana init error:', error);
-            this.setPaymentStatus('Failed to connect to Solana');
+            console.error('Wallet init error:', error);
+            this.setPaymentStatus('Wallet initialization failed');
         }
     }
 
-    // Sync removed cubes from blockchain
-    async syncRemovedCubesFromChain() {
-        // For a full implementation, you'd query the program's accounts
-        // For now, we'll use localStorage as a fallback cache
+    // Prompt user to switch to Monad network
+    async ensureMonadNetwork() {
+        if (!window.ethereum) return;
+
+        try {
+            const chainIdHex = '0x' + CONFIG.CHAIN_ID.toString(16);
+            const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+
+            if (currentChainId !== chainIdHex) {
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: chainIdHex }],
+                    });
+                } catch (switchError) {
+                    // Chain not added yet — add it
+                    if (switchError.code === 4902) {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: chainIdHex,
+                                chainName: CONFIG.CHAIN_NAME,
+                                nativeCurrency: {
+                                    name: CONFIG.CURRENCY_SYMBOL,
+                                    symbol: CONFIG.CURRENCY_SYMBOL,
+                                    decimals: CONFIG.CURRENCY_DECIMALS,
+                                },
+                                rpcUrls: [CONFIG.RPC_URL],
+                                blockExplorerUrls: [CONFIG.BLOCK_EXPLORER],
+                            }],
+                        });
+                    } else {
+                        throw switchError;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Network switch error:', error);
+            this.setPaymentStatus('Please switch to Monad network');
+        }
+    }
+
+    // Load removed cubes from localStorage cache
+    async syncRemovedCubesFromCache() {
         try {
             const cached = localStorage.getItem('removedCubes');
             if (cached) {
@@ -136,7 +191,6 @@ class CubeClickerGame {
         }
     }
 
-    // Save removed cubes to localStorage (backup)
     saveRemovedCubes() {
         try {
             localStorage.setItem('removedCubes', JSON.stringify([...this.removedCubesCache]));
@@ -162,8 +216,8 @@ class CubeClickerGame {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // clamp for performance
-        this.renderer.shadowMap.enabled = false; // disable shadows for performance
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        this.renderer.shadowMap.enabled = false;
         document.getElementById('game-container').appendChild(this.renderer.domElement);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -270,21 +324,6 @@ class CubeClickerGame {
         if (this.connectBtn) {
             this.connectBtn.addEventListener('click', () => this.handleConnectButton());
         }
-
-        // Listen for Phantom wallet changes
-        if (window.solana) {
-            window.solana.on('connect', () => {
-                this.walletPublicKey = window.solana.publicKey;
-                this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletPublicKey.toString())}`);
-                this.updateConnectButton();
-            });
-
-            window.solana.on('disconnect', () => {
-                this.walletPublicKey = null;
-                this.setWalletStatus('Not connected');
-                this.updateConnectButton();
-            });
-        }
     }
 
     onMouseDown(event) {
@@ -337,27 +376,32 @@ class CubeClickerGame {
 
     updateConnectButton() {
         if (!this.connectBtn) return;
-        this.connectBtn.textContent = this.walletPublicKey ? 'Disconnect Wallet' : 'Connect Phantom';
+        this.connectBtn.textContent = this.walletAddress ? 'Disconnect Wallet' : 'Connect Wallet';
     }
 
     shortenAddress(address) {
         if (!address) return '';
-        return `${address.slice(0, 4)}...${address.slice(-4)}`;
+        return `${address.slice(0, 6)}...${address.slice(-4)}`;
     }
 
     async connectWallet() {
-        if (!window.solana?.isPhantom) {
-            this.setWalletStatus('Phantom not found');
-            alert('Please install Phantom wallet to play!\nhttps://phantom.app');
+        if (!window.ethereum) {
+            this.setWalletStatus('No wallet found');
+            alert('Please install MetaMask or another EVM wallet to play!\nhttps://metamask.io');
             return null;
         }
 
         try {
-            const response = await window.solana.connect();
-            this.walletPublicKey = response.publicKey;
-            this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletPublicKey.toString())}`);
+            this.provider = new ethers.BrowserProvider(window.ethereum);
+            const accounts = await this.provider.send('eth_requestAccounts', []);
+            this.signer = await this.provider.getSigner();
+            this.walletAddress = accounts[0];
+            this.setWalletStatus(`Connected: ${this.shortenAddress(this.walletAddress)}`);
             this.updateConnectButton();
-            return this.walletPublicKey;
+
+            await this.ensureMonadNetwork();
+
+            return this.walletAddress;
         } catch (error) {
             this.setWalletStatus('Connection rejected');
             console.error('Wallet connection rejected', error);
@@ -366,45 +410,42 @@ class CubeClickerGame {
     }
 
     async disconnectWallet() {
-        if (window.solana) {
-            await window.solana.disconnect();
-        }
-        this.walletPublicKey = null;
+        this.walletAddress = null;
+        this.signer = null;
         this.setWalletStatus('Not connected');
         this.setPaymentStatus('Disconnected');
         this.updateConnectButton();
     }
 
     async handleConnectButton() {
-        if (this.walletPublicKey) {
+        if (this.walletAddress) {
             await this.disconnectWallet();
         } else {
             await this.connectWallet();
         }
     }
 
-    // Execute Solana payment and remove cube
+    // Execute MON payment and remove cube
     async removeCubeWithPayment(cube) {
         if (this.isProcessingPayment) {
             this.setPaymentStatus('Transaction in progress...');
             return false;
         }
 
-        if (!window.solana?.isPhantom) {
-            this.setPaymentStatus('Phantom wallet required');
-            alert('Please install Phantom wallet to play!\nhttps://phantom.app');
+        if (!window.ethereum) {
+            this.setPaymentStatus('EVM wallet required');
+            alert('Please install MetaMask or another EVM wallet to play!\nhttps://metamask.io');
             return false;
         }
 
         // Connect wallet if needed
-        if (!this.walletPublicKey) {
+        if (!this.walletAddress) {
             const connected = await this.connectWallet();
             if (!connected) return false;
         }
 
         const cubeId = cube.userData.id;
 
-        // Check if already removed
         if (this.removedCubesCache.has(cubeId)) {
             this.setPaymentStatus('Cube already removed');
             return false;
@@ -414,95 +455,55 @@ class CubeClickerGame {
         this.setPaymentStatus('Creating transaction...');
 
         try {
-            // Create a simple SOL transfer (in production, call the program)
-            const lamports = CONFIG.PRICE_PER_CUBE_SOL * solanaWeb3.LAMPORTS_PER_SOL;
-
-            // Treasury address - receives the SOL payment
-            if (!CONFIG.TREASURY_WALLET) {
+            if (!CONFIG.TREASURY_WALLET || CONFIG.TREASURY_WALLET === '0x0000000000000000000000000000000000000000') {
                 this.setPaymentStatus('Treasury wallet not configured');
                 throw new Error('Treasury wallet not configured in game.js');
             }
-            const treasury = new solanaWeb3.PublicKey(CONFIG.TREASURY_WALLET);
 
-            const maxAttempts = 2;
-            for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                const transaction = new solanaWeb3.Transaction();
+            // Ensure we're on the right network
+            await this.ensureMonadNetwork();
 
-                // Add priority fee (tip) to improve landing speed
-                if (CONFIG.PRIORITY_FEE_MICRO_LAMPORTS && CONFIG.PRIORITY_FEE_MICRO_LAMPORTS > 0) {
-                    transaction.add(
-                        solanaWeb3.ComputeBudgetProgram.setComputeUnitPrice({
-                            microLamports: CONFIG.PRIORITY_FEE_MICRO_LAMPORTS,
-                        })
-                    );
-                }
+            // Re-init provider/signer after potential network switch
+            this.provider = new ethers.BrowserProvider(window.ethereum);
+            this.signer = await this.provider.getSigner();
 
-                transaction.add(
-                    solanaWeb3.SystemProgram.transfer({
-                        fromPubkey: this.walletPublicKey,
-                        toPubkey: treasury,
-                        lamports: lamports,
-                    })
-                );
+            const value = ethers.parseEther(CONFIG.PRICE_PER_CUBE);
 
-                // Get recent blockhash (with lastValidBlockHeight for confirmation)
-                const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
-                transaction.recentBlockhash = blockhash;
-                transaction.feePayer = this.walletPublicKey;
+            this.setPaymentStatus('Please approve in wallet...');
 
-                this.setPaymentStatus(attempt === 0 ? 'Please approve in Phantom...' : 'Retrying with fresh blockhash...');
+            const tx = await this.signer.sendTransaction({
+                to: CONFIG.TREASURY_WALLET,
+                value: value,
+            });
 
-                // Sign and send
-                const signed = await window.solana.signTransaction(transaction);
-                const signature = await this.connection.sendRawTransaction(signed.serialize());
+            this.setPaymentStatus('Confirming transaction...');
 
-                this.setPaymentStatus('Confirming transaction...');
+            const receipt = await tx.wait(1);
 
-                try {
-                    const confirmation = await this.connection.confirmTransaction(
-                        { signature, blockhash, lastValidBlockHeight },
-                        'confirmed'
-                    );
-
-                    if (confirmation.value.err) {
-                        throw new Error('Transaction failed');
-                    }
-
-                    this.setPaymentStatus(`Confirmed! ${signature.slice(0, 8)}...`);
-
-                    // Mark cube as removed
-                    this.removedCubesCache.add(cubeId);
-                    this.saveRemovedCubes();
-                    this.clickedCount++;
-                    this.myClickedCount++;
-
-                    // Animate removal
-                    this.animateCubeRemoval(cube);
-
-                    return true;
-                } catch (confirmErr) {
-                    const msg = confirmErr?.message || '';
-                    if (attempt < maxAttempts - 1 &&
-                        (msg.includes('block height exceeded') || msg.includes('expired'))) {
-                        // try again with a fresh blockhash
-                        continue;
-                    }
-                    throw confirmErr;
-                }
+            if (receipt.status === 0) {
+                throw new Error('Transaction reverted');
             }
 
-            // Should not reach here
-            throw new Error('Transaction failed after retries');
+            this.setPaymentStatus(`Confirmed! ${tx.hash.slice(0, 10)}...`);
+
+            // Mark cube as removed
+            this.removedCubesCache.add(cubeId);
+            this.saveRemovedCubes();
+            this.clickedCount++;
+            this.myClickedCount++;
+
+            // Animate removal
+            this.animateCubeRemoval(cube);
+
+            return true;
 
         } catch (error) {
             console.error('Payment failed:', error);
             const msg = error.message || '';
-            if (msg.includes('403')) {
-                this.setPaymentStatus('RPC blocked (set SOLANA_RPC_URL)');
-            } else if (msg.includes('User rejected')) {
+            if (msg.includes('user rejected') || msg.includes('ACTION_REJECTED')) {
                 this.setPaymentStatus('Transaction cancelled');
-            } else if (msg.includes('block height exceeded') || msg.includes('expired')) {
-                this.setPaymentStatus('Transaction expired, try again');
+            } else if (msg.includes('insufficient funds')) {
+                this.setPaymentStatus('Insufficient MON balance');
             } else {
                 this.setPaymentStatus('Transaction failed');
             }
@@ -577,10 +578,6 @@ class CubeClickerGame {
     }
 
     async handleCubeClick(event) {
-        // Game temporarily disabled before official start
-        this.setPaymentStatus('Clicking disabled until 19.01 5PM CET');
-        return;
-
         if (event.target.tagName === 'BUTTON') return;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -662,7 +659,6 @@ class CubeClickerGame {
     }
 
     resetGame() {
-        // In production, this would require owner authority on the contract
         this.hideWinnerModal();
         this.clickedCount = 0;
         this.myClickedCount = 0;
